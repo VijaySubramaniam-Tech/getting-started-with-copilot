@@ -12,22 +12,80 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Clear loading message
       activitiesList.innerHTML = "";
+      // Reset activity select to keep options from duplicating on refresh
+      activitySelect.innerHTML = '<option value="">-- Select an activity --</option>';
 
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
         const activityCard = document.createElement("div");
         activityCard.className = "activity-card";
 
-        const spotsLeft = details.max_participants - details.participants.length;
+        const participants = Array.isArray(details.participants) ? details.participants : [];
+        const spotsLeft = details.max_participants - participants.length;
+
+        // Build participants markup
+        let participantsHtml = "";
+        if (participants.length > 0) {
+          participantsHtml = `
+            <div class="participants">
+              <strong>Participants (${participants.length})</strong>
+              <ul class="participants-list">
+                ${participants
+                  .map(
+                    p => `<li class="participant-item"><span class="avatar">${p.charAt(0).toUpperCase()}</span><span class="participant-name">${p}</span><button class="delete-btn" data-activity="${encodeURIComponent(name)}" data-email="${encodeURIComponent(p)}" title="Remove participant">✖</button></li>`
+                  )
+                  .join("")}
+              </ul>
+            </div>
+          `;
+        } else {
+          participantsHtml = `<div class="participants participants-empty">No participants yet</div>`;
+        }
 
         activityCard.innerHTML = `
           <h4>${name}</h4>
           <p>${details.description}</p>
           <p><strong>Schedule:</strong> ${details.schedule}</p>
           <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
+          ${participantsHtml}
         `;
 
         activitiesList.appendChild(activityCard);
+
+        // Attach delete handlers for participant remove buttons
+        activityCard.querySelectorAll('.delete-btn').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            const activityName = decodeURIComponent(btn.dataset.activity);
+            const email = decodeURIComponent(btn.dataset.email);
+
+            try {
+              const resp = await fetch(
+                `/activities/${encodeURIComponent(activityName)}/unregister?email=${encodeURIComponent(email)}`,
+                { method: 'DELETE' }
+              );
+
+              const result = await resp.json();
+
+              if (resp.ok) {
+                messageDiv.textContent = result.message;
+                messageDiv.className = 'success';
+                messageDiv.classList.remove('hidden');
+                // Refresh list to reflect removal
+                fetchActivities();
+                setTimeout(() => messageDiv.classList.add('hidden'), 4000);
+              } else {
+                messageDiv.textContent = result.detail || 'Failed to remove participant';
+                messageDiv.className = 'error';
+                messageDiv.classList.remove('hidden');
+              }
+            } catch (error) {
+              console.error('Error unregistering participant:', error);
+              messageDiv.textContent = 'Network error while removing participant';
+              messageDiv.className = 'error';
+              messageDiv.classList.remove('hidden');
+            }
+          });
+        });
 
         // Add option to select dropdown
         const option = document.createElement("option");
@@ -62,6 +120,8 @@ document.addEventListener("DOMContentLoaded", () => {
         messageDiv.textContent = result.message;
         messageDiv.className = "success";
         signupForm.reset();
+        // Refresh activities so the UI reflects the newly registered participant
+        fetchActivities();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
